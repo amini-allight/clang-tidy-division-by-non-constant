@@ -1,0 +1,180 @@
+diff -ruN clang-tools-extra/clang-tidy/bugprone/BugproneTidyModule.cpp clang-tools-extra/clang-tidy/bugprone/BugproneTidyModule.cpp
+--- clang-tools-extra/clang-tidy/bugprone/BugproneTidyModule.cpp
++++ clang-tools-extra/clang-tidy/bugprone/BugproneTidyModule.cpp
+@@ -22,6 +22,7 @@
+ #include "CopyConstructorInitCheck.h"
+ #include "CrtpConstructorAccessibilityCheck.h"
+ #include "DanglingHandleCheck.h"
++#include "DivisionByNonConstantCheck.h"
+ #include "DynamicStaticInitializersCheck.h"
+ #include "EasilySwappableParametersCheck.h"
+ #include "EmptyCatchCheck.h"
+@@ -118,6 +119,8 @@
+         "bugprone-copy-constructor-init");
+     CheckFactories.registerCheck<DanglingHandleCheck>(
+         "bugprone-dangling-handle");
++    CheckFactories.registerCheck<DivisionByNonConstantCheck>(
++        "bugprone-division-by-non-constant");
+     CheckFactories.registerCheck<DynamicStaticInitializersCheck>(
+         "bugprone-dynamic-static-initializers");
+     CheckFactories.registerCheck<EasilySwappableParametersCheck>(
+diff -ruN clang-tools-extra/clang-tidy/bugprone/CMakeLists.txt clang-tools-extra/clang-tidy/bugprone/CMakeLists.txt
+--- clang-tools-extra/clang-tidy/bugprone/CMakeLists.txt
++++ clang-tools-extra/clang-tidy/bugprone/CMakeLists.txt
+@@ -16,6 +16,7 @@
+   ComparePointerToMemberVirtualFunctionCheck.cpp
+   CopyConstructorInitCheck.cpp
+   DanglingHandleCheck.cpp
++  DivisionByNonConstantCheck.cpp
+   DynamicStaticInitializersCheck.cpp
+   EasilySwappableParametersCheck.cpp
+   EmptyCatchCheck.cpp
+diff -ruN clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp
+--- clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp
++++ clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp
+@@ -0,0 +1,38 @@
++//===--- DivisionByNonConstantCheck.cpp - clang-tidy ----------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "DivisionByNonConstantCheck.h"
++#include "clang/ASTMatchers/ASTMatchFinder.h"
++
++using namespace clang::ast_matchers;
++
++namespace clang::tidy::bugprone {
++
++void DivisionByNonConstantCheck::registerMatchers(MatchFinder *Finder) {
++  Finder->addMatcher(traverse(TK_IgnoreUnlessSpelledInSource,
++    binaryOperator(
++      hasOperatorName("/"),
++        hasRHS(
++          hasDescendant(
++            declRefExpr(
++              hasType(
++                qualType(unless(isConstQualified())))))))
++                  .bind("division_by_non_constant")
++    ), this);
++}
++
++void DivisionByNonConstantCheck::check(const MatchFinder::MatchResult &Result) {
++    const auto *DivisionByNonConstant = Result.Nodes
++      .getNodeAs<BinaryOperator>("division_by_non_constant");
++
++    diag(
++      DivisionByNonConstant->getExprLoc(),
++      "division by non-constant may result in division by zero");
++}
++
++} // namespace clang::tidy::bugprone
+diff -ruN clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.h clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.h
+--- clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.h
++++ clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.h
+@@ -0,0 +1,31 @@
++//===--- DivisionByNonConstantCheck.h - clang-tidy --------------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_BUGPRONE_DIVISIONBYNONCONSTANTCHECK_H
++#define LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_BUGPRONE_DIVISIONBYNONCONSTANTCHECK_H
++
++#include "../ClangTidyCheck.h"
++
++namespace clang::tidy::bugprone {
++
++/// Checks if any divisions by a non-constant value occur. These are potential
++/// sites for division-by-zero exceptions at runtime.
++///
++/// For the user-facing documentation see:
++/// http://clang.llvm.org/extra/clang-tidy/checks/bugprone/division-by-non-constant.html
++class DivisionByNonConstantCheck : public ClangTidyCheck {
++public:
++  DivisionByNonConstantCheck(StringRef Name, ClangTidyContext *Context)
++      : ClangTidyCheck(Name, Context) {}
++  void registerMatchers(ast_matchers::MatchFinder *Finder) override;
++  void check(const ast_matchers::MatchFinder::MatchResult &Result) override;
++};
++
++} // namespace clang::tidy::bugprone
++
++#endif // LLVM_CLANG_TOOLS_EXTRA_CLANG_TIDY_BUGPRONE_DIVISIONBYNONCONSTANTCHECK_H
+diff -ruN clang-tools-extra/docs/clang-tidy/checks/bugprone/division-by-non-constant.rst clang-tools-extra/docs/clang-tidy/checks/bugprone/division-by-non-constant.rst
+--- clang-tools-extra/docs/clang-tidy/checks/bugprone/division-by-non-constant.rst
++++ clang-tools-extra/docs/clang-tidy/checks/bugprone/division-by-non-constant.rst
+@@ -0,0 +1,16 @@
++.. title:: clang-tidy - bugprone-division-by-non-constant
++
++bugprone-division-by-non-constant
++=================================
++
++Checks if any divisions by a non-constant value occur. These are potential
++sites for division-by-zero exceptions at runtime.
++
++An example of code that will trigger this tidy:
++
++.. code-block:: c++
++
++  int X = 2;
++  int Y = 4 / X;
++
++No fix is provided, you are expected to check the indicated locations and make your own judgement about whether a division-by-zero is possible in practice.
+diff -ruN clang-tools-extra/docs/clang-tidy/checks/list.rst clang-tools-extra/docs/clang-tidy/checks/list.rst
+--- clang-tools-extra/docs/clang-tidy/checks/list.rst
++++ clang-tools-extra/docs/clang-tidy/checks/list.rst
+@@ -88,6 +88,7 @@
+    :doc:`bugprone-copy-constructor-init <bugprone/copy-constructor-init>`, "Yes"
+    :doc:`bugprone-crtp-constructor-accessibility <bugprone/crtp-constructor-accessibility>`, "Yes"
+    :doc:`bugprone-dangling-handle <bugprone/dangling-handle>`,
++   :doc:`bugprone-division-by-non-constant <bugprone/division-by-non-constant>`, "Yes"
+    :doc:`bugprone-dynamic-static-initializers <bugprone/dynamic-static-initializers>`,
+    :doc:`bugprone-easily-swappable-parameters <bugprone/easily-swappable-parameters>`,
+    :doc:`bugprone-empty-catch <bugprone/empty-catch>`,
+diff -ruN clang-tools-extra/docs/ReleaseNotes.rst clang-tools-extra/docs/ReleaseNotes.rst
+--- clang-tools-extra/docs/ReleaseNotes.rst
++++ clang-tools-extra/docs/ReleaseNotes.rst
+@@ -110,6 +110,12 @@
+   Detects error-prone Curiously Recurring Template Pattern usage, when the CRTP
+   can be constructed outside itself and the derived class.
+ 
++- New :doc:`bugprone-division-by-non-constant
++  <clang-tidy/checks/bugprone/division-by-non-constant>` check.
++
++  Checks if any divisions by a non-constant value occur. These are potential
++  sites for division-by-zero exceptions at runtime.
++
+ - New :doc:`modernize-use-designated-initializers
+   <clang-tidy/checks/modernize/use-designated-initializers>` check.
+ 
+diff -ruN clang-tools-extra/test/clang-tidy/checkers/bugprone/division-by-non-constant.cpp clang-tools-extra/test/clang-tidy/checkers/bugprone/division-by-non-constant.cpp
+--- clang-tools-extra/test/clang-tidy/checkers/bugprone/division-by-non-constant.cpp
++++ clang-tools-extra/test/clang-tidy/checkers/bugprone/division-by-non-constant.cpp
+@@ -0,0 +1,21 @@
++// RUN: %check_clang_tidy %s bugprone-division-by-non-constant %t
++
++int divisionByNonConstant()
++{
++    int X = 2;
++
++    return 4 / X;
++}
++// CHECK-MESSAGES: :[[@LINE-2]]:7: warning: division by non-constant may result in division by zero [bugprone-division-by-non-constant]
++
++int divisionByConstant()
++{
++    const int X = 2;
++
++    return 4 / X;
++}
++
++int divisionByLiteral()
++{
++    return 4 / 2;
++}
