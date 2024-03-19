@@ -32,7 +32,7 @@ diff -ruN clang-tools-extra/clang-tidy/bugprone/CMakeLists.txt clang-tools-extra
 diff -ruN clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp
 --- clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp
 +++ clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,42 @@
 +//===--- DivisionByNonConstantCheck.cpp - clang-tidy ----------------------===//
 +//
 +// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -51,14 +51,18 @@ diff -ruN clang-tools-extra/clang-tidy/bugprone/DivisionByNonConstantCheck.cpp c
 +void DivisionByNonConstantCheck::registerMatchers(MatchFinder *Finder) {
 +  Finder->addMatcher(traverse(TK_IgnoreUnlessSpelledInSource,
 +    binaryOperator(
-+      hasOperatorName("/"),
-+        hasRHS(
-+          hasDescendant(
-+            declRefExpr(
-+              hasType(
-+                qualType(unless(isConstQualified())))))))
-+                  .bind("division_by_non_constant")
-+    ), this);
++      anyOf(
++        hasOperatorName("/"),
++        hasOperatorName("%"),
++        hasOperatorName("/="),
++        hasOperatorName("%=")),
++      hasRHS(
++        hasDescendant(
++          declRefExpr(anyOf(
++            hasType(qualType(unless(isConstQualified()))),
++            to(valueDecl(hasType(referenceType())))))))
++    ).bind("division_by_non_constant")
++  ), this);
 +}
 +
 +void DivisionByNonConstantCheck::check(const MatchFinder::MatchResult &Result) {

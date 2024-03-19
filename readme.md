@@ -38,6 +38,29 @@ int y = 4 / pow(x, 2);
 
 This will be registered as a division by a non-constant value even though the right-hand side is constant in practice.
 
+The tidy is underzealous when the right-hand side of the division operation is a run-time constant, for example:
+
+```cpp
+int get_from_user()
+{
+    int x;
+    cin >> x;
+}
+
+int main()
+{
+    const int x = get_from_user();
+
+    int y = 4 / x;
+
+    return 0;
+}
+```
+
+This will not be registered by the tidy, even though the right-hand side is variable at runtime and this may result in a division-by-zero.
+
+As far as I know it isn't possible to fix either of these in a tidy: the abstract syntax tree simply doesn't contain enough information to determine true compile-time constness. A possible future project would be to implement this project as a Clang static analysis checker which does have that power.
+
 ## Credit & License
 
 Developed by Amini Allight and licensed under the Apache License 2.0 with LLVM exceptions, matching the license used by the LLVM project itself.
