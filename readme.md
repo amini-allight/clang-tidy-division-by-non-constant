@@ -44,7 +44,10 @@ The tidy is underzealous when the right-hand side of the division operation is a
 int get_from_user()
 {
     int x;
+
     cin >> x;
+    
+    return x;
 }
 
 int main()
